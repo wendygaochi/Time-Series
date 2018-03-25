@@ -1,0 +1,348 @@
+---
+title: "Assignment3_TS"
+author: "Weijie Gao"
+date: "10/19/2017"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(xlsx)
+library(timeSeries)
+library(forecast)
+library(tseries)
+library(TSA)
+```
+
+```{r}
+df <- read.xlsx("Unemployment_GDP_UK.xlsx", sheetIndex = 1)
+head(df)
+```
+
+### ARIMA Modeling
+```{r}
+# Use datasets from 1955 to 1968 to build an ARMA or ARIMA models for UN and GDP
+UN <- df[1:56,3]
+UN_ts <- ts(UN,start=1955,freq=4)
+plot(UN_ts,xlab="Quarter in Year", ylab="UN",lwd=2,
+col='skyblue2',lty=1,xlim=c(1955,1968), main= "Time Series Plot of UN from 1955 to 1968")
+```
+```{r}
+plot(stl(UN_ts,s.window="periodic"))
+```
+
+From both the time series plot of UN from 1955 to 1968 and the stl decomposition shows that there is an upward trend and there is strong and regular seasonality in this time series, which suggests the time series data is non-stationary and at least we need to take the first difference, so we need ARIMA model.
+
+```{r}
+# check stationarity
+adf.test(UN, k = 0)
+```
+
+The ADF test returns p-value of 0.8448, which is greater than the significance level, meaning we fail to reject the H0 and there is sufficient evidence to suggest this time series is non-stationary.
+
+```{r}
+# convert to stationarity
+UN_diff <- diff(UN)
+adf.test(UN_diff, k = 0)
+```
+
+```{r}
+# taking first difference only does not convert it into stationary time series
+UN_log_diff <- diff(log(UN))
+adf.test(UN_log_diff, k = 0)
+```
+
+```{r}
+# check plots
+acf(UN_log_diff,main="ACF of First Difference of Log(UN)")
+```
+```{r}
+pacf(UN_log_diff,main="PACF of First Difference of Log(UN)")
+```
+```{r}
+eacf(UN_log_diff)
+```
+
+In ACF Plot, there is a significant spike at lag 1 but it’s not a clear cut, spikes ocillate. In PACF plot, there is a clear cut at lag 1. So AR(1) model is suggested. Since we need to take the first difference of the data to make it stationary. We need to fit the ARIMA model with p=1, d=1, q=0.
+
+```{r}
+# fit model
+UN_log <- log(UN)
+fitUN <- Arima(UN_log, order = c(1,1,0), seasonal = FALSE)
+summary(fitUN)
+```
+
+### GDP:
+
+```{r}
+GDP_55_68 <- df[1:56,4]
+GDP_55_68_ts <- ts(GDP_55_68,start=1955,freq=4)
+plot(GDP_55_68_ts,ylab="UN", xlab="Quarter in Year", lwd=2,
+col='skyblue3',lty=1,xlim=c(1955,1968), main= "Time Series Plot of GDP from 1955 to 1968")
+```
+
+```{r}
+plot(stl(GDP_55_68_ts,s.window="periodic"))
+```
+
+From time series plot of GDP from 1955 to 1968, we can see an upward trend and seasonality. The stl decomposition shows that there is an upward trend and there is strong and regular seasonality in this time series. These implies that the time series data is non-stationary and at least we need to take the first different, so we need ARIMA model. So it’s ARIMA(1,1,0).
+
+```{r}
+# convert to stationary
+GDP_55_68_diff <- diff(GDP_55_68)
+adf.test(GDP_55_68_diff, k = 0)
+```
+
+After taking the first difference of data, the ADF test shows p-value smaller than 0.05, meaning we reject the H0 and can concludes the time series is now stationary.
+
+```{r}
+# check plots
+acf(GDP_55_68_diff,main="ACF of First Difference of Log(UN)")
+```
+
+```{r}
+pacf(GDP_55_68_diff,main="PACF of First Difference of Log(UN)")
+```
+
+```{r}
+eacf(GDP_55_68_diff)
+```
+
+Both ACF and PACF plot of GDP first difference shows there is no clear pattern and no spikes where has a clear cut-off, and from EACF plot we could see both p and q could equal to 0. This suggests that GDP is a random walk process with d = 1, p = q = 0. So it’s ARIMA (0,1,0).
+
+```{r}
+# fit model
+fitGDP <- Arima(GDP_55_68, order = c(0,1,0))
+summary(fitGDP)
+```
+
+As discussed above, both UN and GDP data are non-stationary time series data so that first difference is needed to make them stationary for analysis. That’s why in both cases, ARIMA model is needed. We have also tested the results through auto.arima(). To see how ARIMA models performs, we will perform some residuals analysis.
+
+```{r}
+# residuals for UN
+Acf(residuals(fitUN),main="ACF of residuals for ARIMA(1,1,0) for UN")
+```
+
+```{r}
+Box.test(residuals(fitUN), type="Ljung")
+```
+
+```{r}
+# residuals for GDP
+Acf(residuals(fitGDP))
+```
+
+```{r}
+Box.test(residuals(fitGDP), type="Ljung")
+```
+
+UN: From ACF of residuals plot, we can see all spikes are within the boundary, suggesting residuals are not correlated. From Ljung Box test, p-value is greater than 0.05, suggesting we fail to reject the null hypothesis and there is sufficient evidence to suggest residuals are independent, like white noise. So our model for UN fits well.
+
+GDP: Similarly,the ACF plot shows residuals are not correlated. Ljung Box test has a large p-value, suggesting residuals are independent, like white noise. So our model for GDP fits well too.
+
+### Use the chosen UN and GDP models to forecast the UN and the GDP for 1969.
+```{r}
+# UN: ARIMA(1,1,0)
+UN_69_log <- forecast(fitUN,4)
+UN_69 <- exp(UN_69_log$mean)
+UN_69
+```
+
+```{r}
+plot(UN_69_log,main = "Forecast for log(UN) in 1969")
+```
+
+```{r}
+# GDP: ARIMA(0,1,0)
+GDP_69 <- forecast(fitGDP,4)
+GDP_69
+```
+
+```{r}
+GDP_69$mean # point forecast
+```
+
+```{r}
+# GDP does not need log transformation, can directly interpret in graphs
+plot(GDP_69, main = "Forecast for GDP in 1969")
+```
+
+```{r}
+# UN:
+UN_error <- df[57:60,3] - UN_69
+UN_error
+```
+
+```{r}
+plot(UN_error, type = "p", x = 1:4, xlab = "Quarters of 1969", ylab = "Error", main = "Plot for UN Errors in 1969")
+```
+
+```{r}
+# GDP:
+GDP_error <- df[57:60,4] - GDP_69$mean
+GDP_error
+```
+
+```{r}
+plot(GDP_error, type = "p", x = 1:4, xlab = "Quarters of 1969", ylab = "Error", main = "Plot for GDP Errors in 1969")
+```
+
+```{r}
+# UN: SSE
+(UN_sse <- sum((df[57:60,3] - UN_69)^2))
+```
+
+```{r}
+# GDP: SSE
+(GDP_sse <- sum((df[57:60,4] - GDP_69$mean)^2))
+```
+
+* The sum of squared error for UN model is 2297.979. The sum of squared error for GPA model is 5.68.
+
+```{r}
+# build model
+lm1 <- lm(GDP~UN, data = df[1:56, 3:4])
+summary(lm1)
+```
+
+```{r}
+(GDP_lm_69_with_ci <- predict(lm1, newdata = data.frame(UN=df[57:60,3]), interval="confidence"))
+```
+
+```{r}
+# point forecast only
+(GDP_lm_69 <- predict(lm1, newdata = data.frame(UN=df[57:60,3])))
+```
+
+```{r}
+(GDP_lm_69_error <- df[57:60,4] - GDP_lm_69)
+plot(GDP_lm_69_error, type = "p", x = 1:4, xlab = "Quarters of 1969", ylab = "Error", main = "Error for GDP in 1969 using linear regression")
+```
+
+```{r}
+# sum of squared error
+(GDP_lm_69_sse <- sum((df[57:60,4] - GDP_lm_69)^2))
+```
+
+```{r}
+GDP_lm_error <- df$GDP - predict(lm1, newdata = data.frame(UN = df$UN))
+# plot error
+plot(GDP_lm_error, type = "p", xlab = "1955-1969", ylab = "Error", main = "Error for GDP in 1955−1969 using linear regression")
+(GDP_lm_sse <- sum((df$GDP - predict(lm1, newdata = data.frame(UN = df$UN)))^2))
+```
+
+```{r}
+# build model
+lm2 <- lm(UN~GDP, data = df[1:56, 3:4])
+summary(lm2)
+```
+
+```{r}
+(UN_lm_69_with_ci <- predict(lm2, newdata = data.frame(GDP=df[57:60,4]), interval="confidence"))
+```
+
+```{r}
+# point forecast only
+(UN_lm_69 <- predict(lm2, newdata = data.frame(GDP=df[57:60,4])))
+```
+
+```{r}
+(UN_lm_69_error <- df[57:60,3] - UN_lm_69)
+plot(UN_lm_69_error, type = "p", x = 1:4, xlab = "Quarters of 1969", ylab = "Error", main = "Error for UN in 1969 using linear model")
+# sum of squared error
+(UN_lm_69_sse <- sum((df[57:60,3] - UN_lm_69)^2))
+```
+
+```{r}
+UN_lm_error <- df$UN - predict(lm2, newdata = data.frame(GDP = df$GDP))
+# plot error
+plot(UN_lm_error, type = "p", xlab = "1955-1969", ylab = "Error", main = "Error for UN in 1955−1969 using linear model")
+```
+
+```{r}
+# sum of squared error
+(UN_lm_sse <- sum((df$UN - predict(lm2, newdata = data.frame(GDP = df$GDP)))^2))
+```
+
+```{r}
+cbind(Forecast_GDP_SSE = GDP_lm_69_sse, Forecast_UN_SSE = UN_lm_69_sse)
+```
+
+```{r}
+summary(lm1) # use UN to predict GDP
+```
+
+```{r}
+summary(lm2) # use GDP to predict UN
+```
+
+Based on sum of squared errors, the first model performs better since it has a way smaller value of SSE. And based on summary tables, both models have a low R-squared of around 26%, which indicates both models did a poor job in explain the variation in the response variable. In first model, both intercept and predictor are significant while in second model, only predictor is significant. Based on those, it is likely that the better method is to have UN as the independent variable and GDP as the dependent variable.
+
+```{r}
+library("forecast",lib.loc = "~/R/win-library/3.4")
+x <- consum(rnorm(100,1,1))
+
+?Arima # include.drift = FALSE
+?arima.sim
+ar <- arima.sim(list(order=c(1,0,0),ar=0.9),n=100)
+ts.plot
+```
+
+```{r}
+mod <- auto.arima(ar)
+mod
+```
+
+```{r}
+plot(forecast(mod,15))
+plot(forecast(mod,50))
+```
+
+```{r}
+ar1 <- arima.sim(list(order=c(0,1,1),ma=0.9),n=100)
+mod <- auto.arima(ar1)
+plot(forecast(mod,50))
+```
+
+
+```{r}
+ar2 <- arima.sim(list(order=c(1,0,0),ar=0.9),n=100)
+ts.plot(ar2)
+mean(ar2)
+```
+```{r}
+ar2_add <- arima.sim(list(order=c(1,0,0),ar=0.9),n=100)+4
+ts.plot(ar2_add)
+mean(ar2_add)
+```
+
+
+```{r}
+ar3 <- arima.sim(list(order=c(1,0,0),ar=0.9),n=1000)
+mean(ar3)
+```
+
+```{r}
+?Box.test()
+```
+
+```{r}
+store <- rep(NA, 10000)
+for (i in 1:10000) {
+    store[i] <- sum(sample(1:100, rep = TRUE) == 4) >0
+}
+mean(store)
+```
+
+```{r}
+#install.packages("ISLR")
+library(ISLR)
+
+data(Default)
+
+head(Default)
+write.csv(Default, file = "Default.csv",row.names=FALSE)
+```
+
