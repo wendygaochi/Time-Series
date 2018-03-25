@@ -1,0 +1,278 @@
+---
+title: "Assignment_TS"
+author: "Weijie Gao"
+date: "10/26/2017"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r}
+# load related packages
+library(timeSeries)
+library(forecast)
+library(tseries)
+library(TSA)
+```
+
+#### Data Preparation: For the convenience of time series analysis, the traffic counts in column I80E 1EXIT was extracted from each .xls files and combined into a csv file called Traffic_Flow_2013.csv. The new dataset has three variables: date, time, num. This dataset records an hourly count of the number of vehicles at I80E 1EXIT.
+
+```{r}
+dataPath <- "/Users/gaoweijie/Google Drive/2017 Fall/Time Series/Week4" 
+traffic <- read.csv(paste(dataPath,"Traffic_Flow_2013.csv",sep='/'),header=TRUE)
+head(traffic)
+```
+```{r}
+dim(traffic)
+```
+```{r}
+plot(traffic[,3],type="l", xlab="Time", ylab="Numer of Vehicles", main = "Number of Vehicles at I80E 1EXIT from 2013.6.16 to 2013.7.1")
+```
+```{r}
+par(mfrow=c(2,1))
+acf(traffic[,3],main="ACF plot of Number of Vehicles at I80E 1EXIT from 2013.6.16 to 2013.7.1")
+pacf(traffic[,3],main="PACF plot of Number of Vehicles at I80E 1EXIT from 2013.6.16 to 2013.7.1")
+```
+
+
+```{r}
+par(mfrow=c(1,1))
+traffic_ts <- ts(traffic[,3],start=616,freq=24)
+plot(stl(traffic_ts,s.window="periodic"))
+```
+
+#### The above analysis shows that there is a clear seasonality in the data. And instead of having an obviously decreasing/increasing sign, the trend changes over time.
+
+### Part 1
+```{r}
+# Train data: row 1-360 (Data for last 2 weeks of June 2013) 
+# Test data: row 361-384 (Data for July 1 2013)
+train_data <- traffic[1:360,]
+test_data <- traffic[361:384,]
+
+fit1 <- auto.arima(train_data[,3], stepwise = FALSE, approximation = FALSE)
+summary(fit1)
+```
+
+```{r}
+plot(forecast(fit1, 24), xlab="Time", ylab="Number of Vehicles",main="Forecast")
+lines(x=c(361:384), y =test_data[,3], col="red")
+```
+
+```{r}
+plot(fit1$residuals, main="plot of residuals for ARIMA(2,0,3)")
+```
+
+```{r}
+par(mfrow=c(2,1))
+acf(fit1$residuals, main="ACF plot of residuals for ARIMA(2,0,3)")
+Pacf(fit1$residuals, main="pACF plot of residuals for ARIMA(2,0,3)")
+```
+
+The auto.arima() function returns a model of ARIMA(2,0,3) with AICc = 4455.88 and BIC = 4482.77. In
+the forecast plot, red line is the actual number of vehicles and blue line is the forecast line, and as we could seen that blue line does not match closely with the red line. Also in the residual plot, there is a huge spike around the middle time, and these suggest that our model might not be a good fit.
+
+```{r}
+AICc_min <- 5000
+AICc_min_p <- 0
+AICc_min_q <- 0
+for (p in 1:5){
+  for (q in 1:5){
+        fit11 <- Arima(train_data[,3], order = c(p,0,q))
+        AICc <- fit11$aicc
+        BIC <-fit11$bic
+        if(AICc < AICc_min){
+        AICc_min <- AICc
+        AICc_min_p <- p
+        AICc_min_q <- q}
+  }
+}
+cbind(AICc_min=AICc_min, AICc_min_p=AICc_min_p,AICc_min_q=AICc_min_q)
+```
+
+
+```{r}
+BIC_min <- 5000
+BIC_min_p <- 0
+BIC_min_q <- 0
+for (p in 1:5){
+    for (q in 1:5){
+        fit11 <- Arima(train_data[,3], order = c(p,0,q))
+        AICc <- fit11$aicc
+        BIC <-fit11$bic
+        if(BIC < BIC_min){
+            BIC_min <- BIC
+            BIC_min_p <- p
+            BIC_min_q <- q}
+  }
+}
+cbind(BIC_min=BIC_min,BIC_min_p=BIC_min_p,BIC_min_q= BIC_min_q)
+```
+
+Both AICc and BIC select the same model as the best model: ARIMA(4,0,3) with AICc=4409.439 and BIC=4443.9.
+
+```{r}
+fit.best <- Arima(train_data[,3], order=c(4,0,3))
+fit.best
+```
+
+```{r}
+plot(forecast(fit.best, 24), xlab="Time", ylab="Number of Vehicles",main="Forecast")
+lines(x=c(361:384), y =test_data[,3], col="red")
+```
+
+```{r}
+plot(fit.best$residuals, main="plot of residuals for ARIMA(4,0,3)")
+```
+
+
+```{r}
+par(mfrow=c(2,1))
+acf(fit.best$residuals, main="ACF plot of residuals for ARIMA(4,0,3)")
+Pacf(fit.best$residuals, main="pACF plot of residuals for ARIMA(4,0,3)")
+```
+
+The best model is ARIMA(4,0,3) with AICc = 4409.439 and BIC = 4443.89. Both AICc and BIC are
+lower than that from AIC(2,0,3), suggesting our model of ARIMA(4,0,3) is better. In the forecast
+plot, the blue line matches the actual red line’s better. However, in the residual plot, there is still a spike around the middle time, and this might suggests that our model could be further improved. Generally, ARIMA(4,0,3) is better than ARIMA(2,0,3).
+
+```{r}
+# use day of the week: s=24*7=168
+tsdisplay(diff(train_data[,3],168))
+```
+
+```{r}
+# use day of the week: s=24*7=168
+fit2 <- auto.arima(ts(train_data[,3], frequency=168))
+fit2
+```
+
+```{r}
+# forecast for July 1
+fit2.forecast.July1 <- forecast(fit2,24)
+fit2.predict <- data.frame(forecast(fit2,24))[,1]
+
+(rmse.arima <- sqrt(mean((test_data[,3] - fit2.predict)^2)))
+```
+
+```{r}
+plot(fit2.forecast.July1, xlab="week", ylab="number of vehicles")
+```
+
+```{r}
+tsdisplay(fit2$residuals, main = "plot of residuals for ARIMA(0,1,2)(0,1,0)[168]" )
+```
+
+Use day of the week, I fit a seasonal ARIMA(0,1,2)(0,1,0) model with AICc = 2249.44 and BIC = 2259.07. In the residual plot, it looks like no pattern for most of time except an outlier data near the middle time. Also both ACF and PACF plot have fewer spikes exceeding bounds than before.
+
+### Part 3
+```{r}
+# use hour of the day: s=24
+fit3 <- auto.arima(ts(train_data[,3], frequency=24))
+fit3
+```
+
+```{r}
+# forecast for July 1
+fit3.forecast.July1 <- forecast(fit3,24)
+plot(fit3.forecast.July1, xlab="week", ylab="number of vehicles")
+tsdisplay(fit3$residuals, main = "plot of residuals for ARIMA(2,0,1)(2,0,0)[24]" )
+```
+
+Use hour of the day, I fit a seasonal ARIMA(2,0,1)(2,0,0)[24] model with AICc=4382.55 and BIC=4409.43. In the residual plot, it looks like no pattern for most of time except an outlier data near the middle time. Both ACF and PACF plot have fewer spikes exceeding bounds than before, which is a good sign. But in the forecast plot, the shape of the blue line seems does not match actual data as well as the blue line in Part 2.
+
+```{r}
+#forecast for hour 8:00, 9:00, 17:00, 18:00 on July 1
+hour <- c(8,9,17,18)
+fit3.forecast.July1.hour <- fit3.forecast.July1$mean[hour]
+fit3.forecast.July1.hour
+```
+
+### Part 4
+```{r}
+# Sum of Squared Error (SSE) for model in part 2
+fit2.forecast.July1 <- forecast(fit2,24)
+(fit2.forecast.July1.hour <- fit2.forecast.July1$mean[hour])
+```
+
+```{r}
+# root mean square eror
+(rmse.2 <- sqrt(mean((test_data[hour,3] - fit2.forecast.July1.hour)^2)))
+```
+
+```{r}
+(fit3.forecast.July1.hour <- fit3.forecast.July1$mean[hour])
+```
+
+```{r}
+(rmse.3 <- sqrt(mean((test_data[hour,3] - fit3.forecast.July1.hour)^2)))
+```
+
+```{r}
+cbind(rMSE_Part2=rmse.2, rMSE_Part3=rmse.3)
+```
+
+```{r}
+par(mfrow=c(2,1))
+#---- Forecast Plot ----#
+plot(fit2.forecast.July1, xlab="week", ylab="number of vehicles",main="Forecast Plot: Part2")
+plot(fit3.forecast.July1, xlab="week", ylab="number of vehicles",main="Forecast Plot: Part3")
+```
+
+```{r}
+par(mfrow=c(1,1))
+#---- AICc ----#
+cbind(AICc.Part2 = 2249.44, AICc.Part3=4382.55)
+```
+
+```{r}
+#---- BIC ----#
+cbind(BIC.Part2=2259.07, BIC.Part3=4409.43)
+```
+
+As we can see, the day of the week model in Part 2 has both lower sum of squared error and root mean
+squared error, thus doing a beeter job than the hour of the day model in Part 3. In addition, both AICc and BIC from Part 2 are lower, thus model in Part 2 is better. Also, from the forecast plot, we could see that the forcast of vehicle numbers from ARIMA model in Part 2 is closer to the actual vehicle numbers in July 1. Even the prediction interval in Part 2 is narrower. All those evidences suggests that the model from Part 2 might be better.
+
+### Part 5
+```{r}
+# Holt-Winters exponential smoothing with trend and additive seasonal component.
+fit4 <- HoltWinters(ts(train_data[,3], frequency=168), seasonal = "additive")
+fit4
+```
+
+```{r}
+plot(fit4)
+```
+
+```{r}
+fit4.forecast.July1 <- forecast(fit4, h=24)
+plot(fit4.forecast.July1)
+```
+
+```{r}
+fit4.predict.July1 <- as.data.frame(fit4.forecast.July1)[,1]
+(rmse.4 <- sqrt(mean((test_data[,3] - fit4.predict.July1)^2)))
+```
+
+```{r}
+tsdisplay(fit4.forecast.July1$residuals, main = "plot of residuals for Holt-Winters additive models" )
+Box.test(fit4.forecast.July1$residuals, lag=20, type="Ljung-Box")
+```
+
+```{r}
+data <- ts(train_data[,3], frequency=168)
+data <- data[data!=0]
+#fit5 <- HoltWinters(data, seasonal = "multiplicative")
+#fit5
+```
+It seem that our data is not suitable to fit a Holt-Winters multiplicative as the seasonal variation is clearly not multiplicative, and it also shows the error message that "time series has no or less than 2 periods", so I didn't build a multiplicative model in this case.
+
+```{r}
+cbind(rMSE_Part2=rmse.arima, rMSE_Part5=rmse.4)
+```
+
+Based on the root mean square error, we could see that the Holt-Winters additive seasonality model is slightly better than ARIMA model in part2. However, the correlogram shows that the autocorrelations for the in-sample forecast errors exceed the significance bounds for lags 1-20. Furthermore, the p-value for Ljung-Box test is small, indicating that there is strong evidence of non-zero autocorrelations at lags 1-20, hence the Holt winters model still have room to improve.
+
+
+
+
