@@ -1,0 +1,97 @@
+---
+title: "Assignment2"
+author: "Weijie Gao"
+date: "10/12/2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+dataPath <- "~/Google Drive/2017 Fall/Time Series/week 2"
+movie_data <- read.csv(paste(dataPath,"Hollywood movies dataset.csv",sep='/'),header=TRUE)
+movie_data
+```
+```{r error=FALSE}
+pairs(movie_data[,2:4],data=movie_data, main = "Plot of X2, X3, X4")
+```
+
+```{r}
+matplot(movie_data[,2:4], xaxt="n",type="l",lwd = 3, col=c("green","red","blue"))
+legend(x="topleft",c("X2","X3","X4"),lty=c(1,2,3),lwd=3,col=c("green","red","blue"),cex=0.7)
+```
+
+From both plots, we can see that X2 (total production costs/millions) and X3 (total promotional costs/millions) have a fairly strong positive relationship, meaning that movies with high total production costs are highly likely to have a high total promotional costs.
+X2 (total production costs/millions) and X4 (total book sales/millions) have a relatively weak positive
+relationship. X3 and X4 have a relatively weakest positive relationship. Note that the the point in the upper right corner of scatterplot between X2 and X4 is seemly an outlier, may bias the correlation. The relationship implies that movies with high production costs or high promotional costs may likely to have high book sales.
+```{r error=FALSE,message=FALSE}
+pairs(movie_data,data=movie_data, main = "Plot of X1, X2, X3, X4")
+```
+
+From thescatterplots, we can see that the dependent variable (X1: first year box office receipts) independent variables have positive relationship with X2, X3, and X4 respectively. Note that the positive relationship between X1 and X4 are relatively the weakest.
+
+```{r}
+library(tseries)
+adf.test(movie_data$X2)
+```
+
+```{r}
+adf.test(movie_data$X3)
+```
+
+```{r}
+adf.test(movie_data$X4)
+```
+
+From the ADF test we see that For X2, the p-value is 0.9452, thus we fail to reject the null hypothesis and there is sufficient evidence to suggest that the X2 is a non-stationary process. For X3, the p-value is 0.7804, thus we fail to reject the null hypothesis and there is sufficient evidence to suggest that the X3 is a non-stationary process.For X4, the p-value is less than 0.01, thus we reject the null hypothesis and there is sufficient evidence to suggest that the X4 (total book sales) is a stationary process.
+
+```{r}
+m <- lm(X1~., data=movie_data)
+summary(m)
+
+summary(m)$r.squared
+
+par(mfrow=c(2,2))
+plot(m)
+```
+
+In summary results, the model has a high R-squared of 0.9668, meaning that our model explain about 96.8% variation in the response variable. Adjust R-squared of 0.9502 is also pretty high. The F-stats of 58.22 and p-value suggests that the model overall is statistically significant, and this model is a better fit than the intercept-only model. Looking at diagnostic plots. 
+
+In residual vs.fitted plot, the residuals are not quite randomly distributed, which is not good. In normal qq plot, some points like point 4,8 are off the line, suggesting the normality assumption is not satisfied. The scale-location shows pattern, suggestion the constant variance assumption may not hold. 
+
+```{r}
+summary(m)$coefficients
+```
+
+The regression coefficient for X2 is 3.66, meaning that holding all other variables constant, on average, for every additional unit increase in total production costs, first year box office receipts tends to increase by 3.66.
+The regression coefficient for X3 is 7.62, meaning that holding all other variables constant, on average, for every additional unit increase in total promotional costs, first year box office receipts tends to increase by 7.62.
+The regression coefficient for X4 is 0.828, meaning that holding all other variables constant, on average, for every additional unit increase in total book sales, first year box office receipts tends to increase by 0.828.
+When total production cost, total promotional costs, and total book sales are equal to 0, the estimated office receipts on average is 7.676.
+
+```{r}
+summary(m)$coefficients[,4]
+```
+
+The variable X2, X3 have p-values smaller than 0.05, meaning they are statistically significant. There is sufficient evidence to suggest that parameter estimates for X2, X3 are different from 0, thus X2, X3 are important in explaining variations in X1. On the other hand, intercept and X4 have p-values greater than 0.05, meaning they are statistically insignificant. The parameter estimates for X4 is not different from 0.
+
+```{r}
+# install.packages("usdm")
+library(usdm)
+library(psych)
+library(car)
+df = data.frame(movie_data$X2,movie_data$X3,movie_data$X4)
+pairs.panels(df)
+```
+```{r}
+vif(m)
+```
+
+From the pairs plot, we see that the correlation between X2 and X3 of 0.79 is pretty strong. Also, the
+correlation between X2 and X4 of 0.43, so it seems like there might be some multicollineartiy in the model. However, looking at vif results, all vif for X2, X3, X4 are smaller than 5, suggesting there is no multicollinearity problem in our model.
+
+```{r}
+par(mfrow=c(1,1))
+acf(m$residuals)
+```
+
+From the ACF plot, we see that all spikes for different lags (except the first one which should have ACF = 1) are all within the boundary and proves to be statistically insignificant. It suggests that the autocorrelation among residuals are small, which is a good sign. Most variation in the response variables could be explained by our predictors, which suggests our model fits well.
