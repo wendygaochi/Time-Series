@@ -1,0 +1,531 @@
+---
+title: "Assignment_8"
+author: "Weijie Gao"
+date: "11/28/2017"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+suppressWarnings(library(forecast))
+suppressWarnings(library(xts))
+suppressWarnings(library(fGarch))
+```
+
+```{r}
+dataPath <- "~/Google Drive/2017 Fall/Time Series/Week8"
+seat_price <- read.csv(paste(dataPath,"seat_price.csv",sep='/'), header=TRUE)
+classification_data <- read.csv(paste(dataPath,"Contracts_Classification.csv",sep='/'), header=TRUE)
+volume_data <- read.csv(paste(dataPath,"Contracts_Volume.csv",sep='/'), header=TRUE)
+```
+
+
+```{r}
+head(seat_price)
+```
+
+```{r}
+head(classification_data)
+```
+
+```{r}
+head(volume_data)
+```
+
+#### 1. CME
+#### Task A
+```{r}
+seat <- "CME"
+commodity <- c(as.character(classification_data$Commodity.Code[classification_data$Division=="CME"]))
+commodity <- unique(commodity)
+commodity
+```
+
+```{r}
+tradable_commodity <- is.element(volume_data$Commodity.Indicator,commodity)
+head(tradable_commodity,3)
+```
+
+```{r}
+volume <- volume_data[tradable_commodity,]
+head(volume,3)
+```
+
+
+```{r}
+volume$Electronic.Volume <- as.numeric(gsub(",","",volume$Electronic.Volume,fixed=TRUE))
+volume$Floor.Volume <- volume$Total.Volume-volume$Electronic.Volume
+head(volume,3)
+```
+
+```{r}
+# aggregate upon derivative types.
+cme_volume_0 <- aggregate(cbind(Electronic.Volume, Floor.Volume,
+Total.Volume)~Date+Commodity.Indicator, data=volume, sum)
+head(cme_volume_0,3)
+```
+
+```{r}
+dim(cme_volume_0)
+```
+
+```{r}
+# drop any data before date 1/1/2001
+cme_volume <- cme_volume_0[!as.Date(cme_volume_0$Date, "%m/%d/%Y") < as.Date("2001-01-01"),]
+head(cme_volume,3)
+```
+
+```{r}
+dim(cme_volume)
+```
+
+```{r}
+names(cme_volume)
+```
+
+```{r}
+# aggregate CME based on Date
+cme_volume<-aggregate(cbind(Electronic.Volume, Floor.Volume, Total.Volume)~Date, data=cme_volume,sum)
+head(cme_volume,3)
+```
+
+```{r}
+# order by date
+cme_volume <- cme_volume[order(as.Date(cme_volume$Date, "%m/%d/%Y")),]
+head(cme_volume,5)
+```
+
+```{r}
+tail(cme_volume,5)
+```
+
+```{r}
+# combine trading volume with seat price.
+cme_seat_price <- seat_price[[toupper(seat)]]
+head(cme_seat_price)
+```
+
+```{r}
+cme_volume$Seat.Price <- cme_seat_price
+head(cme_volume,3)
+```
+
+
+#### Split data into train and test
+```{r}
+# Partion the training and testing data based on the date of trading.
+# training data: data with date before year 2013
+# testing data: data with date in year 2013
+cme_train <- cme_volume[as.Date(cme_volume$Date,"%m/%d/%Y") < as.Date("2013-01-01") ,]
+cme_test <- cme_volume[!as.Date(cme_volume$Date,"%m/%d/%Y") < as.Date("2013-01-01") ,]
+# create an empty list to store forecast values
+seat_price_forecast <- list()
+```
+
+#### 1.1 Linear regression
+```{r}
+cme_lm <- lm(Seat.Price~Electronic.Volume+Floor.Volume, data=cme_train)
+summary(cme_lm)
+```
+
+```{r}
+seat_price_forecast$lm <- predict(cme_lm, cme_test)
+```
+
+#### 1.2 Linear regression with ARMA errors (use arima with xreg)
+```{r}
+cme_lm_arma_errors <- auto.arima(cme_train$Seat.Price, xreg=cme_train[,c(2,3)], allowdrift = FALSE)
+summary(cme_lm_arma_errors)
+
+seat_price_forecast$lm_arma_errors <- predict(cme_lm_arma_errors, n.ahead=12, newxreg = cme_test[,c(2,3)])$mean
+```
+
+#### 1.3 ARIMA
+```{r}
+cme_arima <- auto.arima(cme_train$Seat.Price, allowdrift = FALSE)
+summary(cme_arima)
+```
+
+```{r}
+seat_price_forecast$arima <- forecast(cme_arima,h=12)$mean
+```
+
+#### 1.4 Seasonal ARIMA (SARIMA)
+```{r}
+cme_sarima <- auto.arima(ts(cme_train$Seat.Price,frequency = 12), allowdrift = FALSE)
+summary(cme_sarima)
+```
+
+#### 1.5 Fractional ARIMA (ARFIMA)
+```{r}
+acf(cme_train$Seat.Price, main = "CME Seat Price Before 2013")
+cme_arfima <- arfima(cme_train$Seat.Price)
+summary(cme_arfima)
+seat_price_forecast$arfima <- forecast(cme_arfima , h=12)$mean
+```
+
+#### 1.6 ARMA and GARCH combination
+```{r}
+cme_seat_price_xts <- xts(cme_train$Seat.Price, order.by = as.Date(cme_train$Date, "%m/%d/%Y"))
+cme_log <- log(cme_seat_price_xts)
+# in order to make data stationary, need to take first difference of cme_log
+cme_log <- diff(cme_log)[-1]
+plot(cme_log)
+```
+
+```{r}
+# find p,q
+cme_arma <- auto.arima(cme_log)
+summary(cme_arma)
+```
+
+```{r}
+# from summary results, we will choose p=2, q=2
+cme_garch <- garchFit(~arma(2,2) + garch(1,1), data=cme_log, cond.dist = "std", trace=F)
+summary(cme_garch)
+```
+
+```{r}
+# forecast value
+forecast_cme_log_garch <- predict(cme_garch, n.ahead=12)$meanForecast
+# compute the price from forecast_cme_log_garch
+seat_price_forecast$garch <- as.numeric(tail(cme_seat_price_xts,1)*exp(cumsum(forecast_cme_log_garch)))
+```
+
+#### Task B (sMAPE)
+```{r}
+smape <- function(fitted, actual) {
+          return(2*mean(abs(fitted - actual) / (abs(fitted) + abs(actual))))
+          }
+cme_smape <- mapply(smape, seat_price_forecast, list(cme_test$Seat.Price))
+cme_smape
+```
+
+```{r}
+cme_smape[which.min(cme_smape)]
+```
+From sMAPE results, the Seasonal ARIMA model is the best one to forecast monthly prices for CME seat
+classes since SARIMA model has the smallest sMAPE thus the best.
+
+#### 2. IMM
+
+#### Task A
+```{r}
+# IMM commodity subset
+seat <- "IMM"
+commodity_imm <- c(as.character(classification_data$Commodity.Code[classification_data$Division=="IMM"]))
+commodity_imm <- unique(commodity_imm)
+commodity_imm
+```
+
+```{r}
+# filter out tradable commodities
+tradable_commodity_imm <- is.element(volume_data$Commodity.Indicator,commodity_imm)
+head(tradable_commodity_imm,3)
+```
+
+```{r}
+volume_imm <- volume_data[tradable_commodity_imm,]
+head(volume_imm,3)
+```
+
+```{r}
+# floor volume
+volume_imm$Electronic.Volume <- as.numeric(gsub(",","",volume_imm$Electronic.Volume,fixed=TRUE))
+volume_imm$Floor.Volume <- volume_imm$Total.Volume-volume_imm$Electronic.Volume
+head(volume_imm,3)
+```
+
+```{r}
+# aggregate upon derivative types.
+imm_volume_0 <- aggregate(cbind(Electronic.Volume, Floor.Volume,
+Total.Volume)~Date+Commodity.Indicator, data=volume_imm, sum)
+head(imm_volume_0,3)
+```
+
+```{r}
+dim(imm_volume_0)
+```
+
+```{r}
+# drop any data before date 1/1/2001
+imm_volume <- imm_volume_0[!as.Date(imm_volume_0$Date, "%m/%d/%Y") < as.Date("2001-01-01"),]
+head(imm_volume,3)
+```
+
+```{r}
+dim(imm_volume)
+```
+
+```{r}
+# aggregate IMM based on Date
+imm_volume<-aggregate(cbind(Electronic.Volume, Floor.Volume, Total.Volume)~Date, data=imm_volume,sum)
+head(imm_volume,3)
+```
+
+```{r}
+# order by date
+imm_volume <- imm_volume[order(as.Date(imm_volume$Date, "%m/%d/%Y")),]
+head(imm_volume,3)
+```
+
+```{r}
+# combine trading volume with seat price.
+imm_seat_price <- seat_price[[toupper(seat)]]
+head(imm_seat_price)
+```
+
+```{r}
+imm_volume$Seat.Price <- imm_seat_price
+head(imm_volume,3)
+```
+
+#### Split data into train and test
+```{r}
+imm_train <- imm_volume[as.Date(imm_volume$Date,"%m/%d/%Y") < as.Date("2013-01-01") ,]
+imm_test <- imm_volume[!as.Date(imm_volume$Date,"%m/%d/%Y") < as.Date("2013-01-01") ,]
+# create an empty list to store forecast values
+seat_price_forecast_imm <- list()
+```
+
+#### 2.1 Linear regression
+```{r}
+imm_lm <- lm(Seat.Price~Electronic.Volume+Floor.Volume, data=imm_train)
+summary(imm_lm)
+```
+
+#### 2.2 Linear regression with ARMA errors (use arima with xreg)
+```{r}
+imm_lm_arma_errors <- auto.arima(imm_train$Seat.Price, xreg=imm_train[,c(2,3)], allowdrift = FALSE)
+summary(imm_lm_arma_errors)
+```
+
+```{r}
+seat_price_forecast_imm$lm_arma_errors <- predict(imm_lm_arma_errors, n.ahead=12, newxreg = imm_test[,c(2,3)])$mean
+```
+
+#### 2.3 ARIMA
+```{r}
+imm_arima <- auto.arima(imm_train$Seat.Price, allowdrift = FALSE)
+summary(imm_arima)
+seat_price_forecast_imm$arima <- forecast(imm_arima,h=12)$mean
+```
+
+#### 2.4 Seasonal ARIMA (SARIMA)
+```{r}
+imm_sarima <- auto.arima(ts(imm_train$Seat.Price,frequency = 12), allowdrift = FALSE)
+summary(imm_sarima)
+seat_price_forecast_imm$sarima <- forecast(imm_sarima , h=12)$mean
+```
+
+#### 2.5 Fractional ARIMA (ARFIMA)
+```{r}
+acf(imm_train$Seat.Price, main = "IMM Seat Price Before 2013")
+```
+
+```{r}
+imm_arfima <- arfima(imm_train$Seat.Price)
+summary(imm_arfima)
+seat_price_forecast_imm$arfima <- forecast(imm_arfima, h=12)$mean
+```
+
+#### 2.6 ARMA and GARCH combination
+```{r}
+imm_seat_price_xts <- xts(imm_train$Seat.Price, order.by = as.Date(imm_train$Date, "%m/%d/%Y"))
+imm_log <- log(imm_seat_price_xts)
+```
+
+```{r}
+# in order to make data stationary, need to take first difference of imm_log
+imm_log <- diff(imm_log)[-1]
+plot(imm_log)
+```
+
+```{r}
+# find p,q
+imm_arma <- auto.arima(imm_log)
+summary(imm_arma)
+```
+
+```{r}
+# from summary results, we will choose p=0, q=2
+imm_garch <- garchFit(~arma(0,2) + garch(1,1), data=imm_log, cond.dist = "std", trace=F)
+summary(imm_garch)
+```
+
+```{r}
+# forecast value
+forecast_imm_log_garch <- predict(imm_garch, n.ahead=12)$meanForecast
+# compute the price from forecast_cme_log_garch
+
+seat_price_forecast_imm$garch <- as.numeric(tail(imm_seat_price_xts,1)*exp(cumsum(forecast_imm_log_garch)))
+```
+
+#### Task B
+```{r}
+smape <- function(fitted, actual) {
+          return(2*mean(abs(fitted - actual) / (abs(fitted) + abs(actual))))
+          }
+imm_smape <- mapply(smape, seat_price_forecast_imm, list(imm_test$Seat.Price))
+imm_smape
+```
+
+```{r}
+imm_smape[which.min(imm_smape)]
+```
+
+From sMAPE results, the Fractional ARIMA model is the best one to forecast monthly prices for IMM seat
+classes since ARFIMA model has the smallest sMAPE thus the best. 
+
+#### 3. IOM 
+#### Task A 
+```{r}
+# IOM commodity subset
+seat <- "IOM"
+commodity_iom <- c(as.character(classification_data$Commodity.Code[classification_data$Division=="IOM"]))
+commodity_iom <- unique(commodity_iom)
+head(commodity_iom,30)
+```
+
+```{r}
+# filter out tradable commodities
+tradable_commodity_iom <- is.element(volume_data$Commodity.Indicator,commodity_iom)
+head(tradable_commodity_iom,3)
+```
+
+```{r}
+volume_iom <- volume_data[tradable_commodity_iom,]
+head(volume_iom,3)
+```
+
+```{r}
+# floor volume
+volume_iom$Electronic.Volume <- as.numeric(gsub(",","",volume_iom$Electronic.Volume,fixed=TRUE))
+volume_iom$Floor.Volume <- volume_iom$Total.Volume-volume_iom$Electronic.Volume
+head(volume_iom,3)
+```
+
+```{r}
+# aggregate upon derivative types.
+iom_volume_0 <- aggregate(cbind(Electronic.Volume, Floor.Volume,
+Total.Volume)~Date+Commodity.Indicator, data=volume_iom, sum)
+head(iom_volume_0,3)
+```
+
+```{r}
+# drop any data before date 1/1/2001
+iom_volume <- iom_volume_0[!as.Date(iom_volume_0$Date, "%m/%d/%Y") < as.Date("2001-01-01"),]
+head(iom_volume,3)
+```
+
+```{r}
+# aggregate IOM based on Date
+iom_volume<-aggregate(cbind(Electronic.Volume, Floor.Volume, Total.Volume)~Date, data=iom_volume,sum)
+head(iom_volume,3)
+```
+
+```{r}
+# order by date
+iom_volume <- iom_volume[order(as.Date(iom_volume$Date, "%m/%d/%Y")),]
+head(iom_volume,3)
+```
+
+```{r}
+# combine trading volume with seat price.
+iom_seat_price <- seat_price[[toupper(seat)]]
+head(iom_seat_price)
+
+iom_volume$Seat.Price <- iom_seat_price
+head(iom_volume,3)
+```
+
+#### Split data into train and test
+```{r}
+# Partion the training and testing data based on the date of trading.
+# training data: data with date before year 2013
+# testing data: data with date in year 2013
+iom_train <- iom_volume[as.Date(iom_volume$Date,"%m/%d/%Y") < as.Date("2013-01-01") ,]
+iom_test <- iom_volume[!as.Date(iom_volume$Date,"%m/%d/%Y") < as.Date("2013-01-01") ,]
+# create an empty list to store forecast values
+seat_price_forecast_iom <- list()
+```
+
+#### 3.1 Linear regression
+```{r}
+iom_lm <- lm(Seat.Price~Electronic.Volume+Floor.Volume, data=iom_train)
+summary(iom_lm)
+seat_price_forecast_iom$lm <- predict(iom_lm, iom_test)
+```
+
+#### 3.2 Linear regression with ARMA errors (use arima with xreg)
+```{r}
+iom_lm_arma_errors <- auto.arima(iom_train$Seat.Price, xreg=iom_train[,c(2,3)], allowdrift = FALSE)
+summary(iom_lm_arma_errors)
+```
+
+#### 3.3 ARIMA
+```{r}
+iom_arima <- auto.arima(iom_train$Seat.Price, allowdrift = FALSE)
+summary(iom_arima)
+```
+
+```{r}
+seat_price_forecast_iom$arima <- forecast(iom_arima,h=12)$mean
+```
+
+#### 3.4 Seasonal ARIMA (SARIMA)
+```{r}
+iom_sarima <- auto.arima(ts(iom_train$Seat.Price,frequency = 12), allowdrift = FALSE)
+summary(iom_sarima)
+```
+
+```{r}
+seat_price_forecast_iom$sarima <- forecast(iom_sarima , h=12)$mean
+```
+
+#### 3.5 Fractional ARIMA (ARFIMA)
+```{r}
+acf(iom_train$Seat.Price, main = "IOM Seat Price Before 2013")
+iom_arfima <- arfima(iom_train$Seat.Price)
+summary(iom_arfima)
+seat_price_forecast_iom$arfima <- forecast(iom_arfima, h=12)$mean
+```
+
+#### 3.6 ARMA and GARCH combination
+```{r}
+iom_seat_price_xts <- xts(iom_train$Seat.Price, order.by = as.Date(iom_train$Date, "%m/%d/%Y"))
+iom_log <- log(iom_seat_price_xts)
+# in order to make data stationary, need to take first difference of iom_log
+iom_log <- diff(iom_log)[-1]
+plot(iom_log)
+```
+
+```{r}
+# find p,q
+iom_arma <- auto.arima(iom_log)
+summary(iom_arma)
+```
+
+```{r}
+# from summary results, we will choose p=2, q=0
+iom_garch <- garchFit(~arma(2,0) + garch(1,1), data=iom_log, cond.dist = "std", trace=F)
+summary(iom_garch)
+```
+
+#### Task B (sMAPE)
+```{r}
+smape <- function(fitted, actual) {
+          return(2*mean(abs(fitted - actual) / (abs(fitted) + abs(actual))))
+        }
+iom_smape <- mapply(smape, seat_price_forecast_iom, list(iom_test$Seat.Price))
+iom_smape
+```
+
+```{r}
+iom_smape[which.min(iom_smape)]
+```
+From sMAPE results, the ARMA and GARCH combination model is the best one to forecast monthly prices
+for IOM seat classes since the ARMA and GARCH combination model has the smallest sMAPE thus the
+best.
+
