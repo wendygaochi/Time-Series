@@ -1,5 +1,7 @@
 # Time-Series
 
+Time Series Assignments & Projects.The software implementations are done in R.
+
 * White noise and random walk
 * Correlation, independence, orthogonality and autocorrelation
 * Stationarity and non-stationarity
