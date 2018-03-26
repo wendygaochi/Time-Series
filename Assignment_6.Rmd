@@ -1,0 +1,146 @@
+---
+title: "Assignment6_TS"
+author: "Weijie Gao"
+date: "11/9/2017"
+output: html_document
+---
+
+```{r}
+dataPath <- "~/Google Drive/2017 Fall/Time Series/Week6"
+data <- read.csv(paste(dataPath,"Gas Furnace Dataset.csv",sep='/'),header=TRUE)
+```
+
+```{r}
+head(data)
+```
+```{r}
+library("TSA")
+library(forecast)
+library(tseries)
+library(fracdiff)
+```
+
+```{r}
+par(mfrow=c(2,1))
+plot(data[,1], type = "l", main = "Input.gas.rate")
+plot(data[,2], type = "l", main = "Outlet.gas.CO2.percentage")
+```
+
+```{r}
+fit1 <- lm(Outlet.gas.CO2.percentage~Input.gas.rate, data = data)
+summary(fit1)
+```
+
+```{r}
+plot(fit1$residuals,main="Plot of residuals for fit1")
+tsdisplay(fit1$residuals)
+```
+
+According to the plot of Input.gas.rate and Outlet.gas.CO2.percentage, both data shows seasonality. From the ACF plot of residuals, we could see there is some seasonality in the residuals of the model. There is autocorrelation in residuals. In ACF plot, some spikes are significant until lag 5, and around lag 10-15, spikes become significant again. In PACF plot, there are few significant spikes as well. The linear model is not a good model in terms of residuals behavior and r-squared (only 0.23).
+
+```{r}
+# self-defined function to facilitate the following analysis 
+fun_arma <- function(x, arma.model) {
+p <- arma.model$arma[1]
+q <- arma.model$arma[2]
+num.coef <- p + q
+ar.coef <- arma.model$coef[seq_len(p)]
+ma.coef <- arma.model$coef[p + seq_len(q)]
+if (q == 0) {
+infinite.ar.coef <- ar.coef
+} else {
+infinite.ar.coef <- -ARMAtoMA(-ma.coef, -ar.coef, num.coef)
+}
+return(as.vector(filter(x, c(1, -infinite.ar.coef), side=1)))
+}
+```
+
+```{r}
+Outlet.gas.CO2.percentage <- data$Outlet.gas.CO2.percentage
+Input.gas.rate <- data$Input.gas.rate
+fit2 <- arima(fit1$residuals, order = c(0,0,1), include.mean = FALSE)
+adj.fit2.co2 <- fun_arma(Outlet.gas.CO2.percentage, fit2)
+adj.fit2.gas <- fun_arma(Input.gas.rate, fit2)
+fit2.adj <- lm(adj.fit2.co2~adj.fit2.gas)
+summary(fit2.adj)
+```
+
+```{r}
+plot(fit2.adj$residuals,main="Plot of residuals for fit2")
+tsdisplay(fit2.adj$residuals)
+```
+
+As we can see, the model does not show any significant improvement compared to the model in Task1. In time series plot of residuals, there still shows seasonal variations. In its ACF and PACF plot of residuals, there are few significant spikes suggesting residuals are autocorrelated. Now some spikes in ACF plot become negative. The model has R-squared of 0.08, which is actually worse than the previous model.
+
+```{r}
+fit3 <- arima(fit1$residuals, order = c(1,0,0), include.mean = FALSE)
+adj.fit3.co2 <- fun_arma(Outlet.gas.CO2.percentage, fit3)
+adj.fit3.gas <- fun_arma(Input.gas.rate, fit3)
+fit3.adj <- lm(adj.fit3.co2~adj.fit3.gas)
+summary(fit3.adj)
+```
+
+```{r}
+plot(fit3.adj$residuals,main="Plot of residuals for fit3")
+tsdisplay(fit3.adj$residuals)
+```
+
+This model still does not show any significant improvement compared to the model in Task1.
+
+```{r}
+fit4 <- arima(fit1$residuals, order = c(0,0,2), include.mean = FALSE)
+adj.fit4.co2 <- fun_arma(Outlet.gas.CO2.percentage, fit4)
+adj.fit4.gas <- fun_arma(Input.gas.rate, fit4)
+fit4.adj <- lm(adj.fit4.co2~adj.fit4.gas)
+summary(fit4.adj)
+```
+
+```{r}
+plot(fit4.adj$residuals,main="Plot of residuals for fit4")
+tsdisplay(fit4.adj$residuals)
+```
+
+Residuals in this model still show autocorrelation and seasonality looking at its plot and ACF, PACF plot. But significant spikes are fewer in larger lags, which performs better than previous models.
+
+```{r}
+fit5 <- arima(fit1$residuals, order = c(2,0,0), include.mean = FALSE)
+adj.fit5.co2 <- fun_arma(Outlet.gas.CO2.percentage, fit5)
+adj.fit5.gas <- fun_arma(Input.gas.rate, fit5)
+fit5.adj <- lm(adj.fit5.co2~adj.fit5.gas)
+summary(fit5.adj)
+```
+
+```{r}
+plot(fit5.adj$residuals,main="Plot of residuals for fit5")
+tsdisplay(fit5.adj$residuals)
+```
+
+This model is the wrost so far because of its low R-squared of 0.03 and many significant spikes in its ACF plot of residuals. Residuals are autocorrelated and have seasonality.
+
+```{r}
+fit6 <- arima(fit1$residuals, order = c(2,0,2), include.mean = FALSE)
+adj.fit6.co2 <- fun_arma(Outlet.gas.CO2.percentage, fit6)
+adj.fit6.gas <- fun_arma(Input.gas.rate, fit6)
+fit6.adj <- lm(adj.fit6.co2~adj.fit6.gas)
+summary(fit6.adj)
+```
+
+```{r}
+plot(fit6.adj$residuals,main="Plot of residuals for fit6")
+tsdisplay(fit6.adj$residuals)
+```
+
+This model does not show any significant improvement compared to the model in Task1. Residuals in this model still show autocorrelation and seasonality looking at its plot and ACF, PACF plot. But significant spikes are fewer in larger lags, which performs better than model in Task 1.
+
+```{r}
+fit7 <- arfima(Outlet.gas.CO2.percentage, drange = c(0,0.5))
+summary(fit7)
+```
+
+```{r}
+plot(fit7$residuals,main="Plot of residuals for fit7")
+tsdisplay(residuals(fit7))
+```
+
+The model from Task 7, the fractional ARIMA model (aka ARFIMA), gives the best results. There are only three spikes exceeding the bound in either ACF plot or PACF plot of residuals. Spikes in larger lag are withing the bound, which is a good sign. The volativility in residuals time series plot is much
+less than that in all previous models. There is still seasonality and autocorrelation in residuals. But this model so far performs the best among all previous models we have tried since its residuals behave closer to white noise.
